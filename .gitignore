@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Java
+*.class
+out/
+*.jar
+
+# C++
+bench
+*.exe
+*.o
+*.obj
+
+# C#
+bin/
+obj/
+*.user
+
+# Go
+vendor/
+
+# Rust
+target/
+
+# TypeScript
+dist/
+node_modules/
+*.js.map
+
+# Swift
+.build/
+*.xcodeproj
+
+# Kotlin
+*.jar
+.gradle/
+build/
+
+# Editors
+.vscode/
+.idea/
+*.swp
