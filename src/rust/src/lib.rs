@@ -1,8 +1,7 @@
 //! LogosSort — Golden-ratio dual-pivot introsort (Rust)
 //!
-//! Two pivots placed at φ (≈61.8%) and 1−φ (≈38.2%) golden-ratio positions
-//! of a chaos-seeded index. Ninther pivot refinement, three-way partition,
-//! counting-sort fast path for dense i64 ranges, O(log n) depth limit.
+//! Self-contained — zero calls to slice::sort or sort_unstable internally.
+//! Insertion sort is used for base cases so the algorithm stands alone.
 
 use rand::Rng;
 
@@ -13,26 +12,21 @@ const SMALL_N: usize = 48;
 /// Sort a slice of `i64` in place using LogosSort.
 pub fn logos_sort(arr: &mut [i64]) {
     let n = arr.len();
-    if n < 2 {
-        return;
-    }
+    if n < 2 { return; }
     let depth = 2 * (usize::BITS - n.leading_zeros()) as i32 + 4;
     sort_impl(arr, 0, n as isize - 1, depth);
 }
 
 /// Sort a slice of any `Ord + Clone` type in place (generic version).
-/// Counting-sort fast path is omitted; uses insertion sort / std sort for base cases.
 pub fn logos_sort_generic<T: Ord + Clone>(arr: &mut [T]) {
     let n = arr.len();
-    if n < 2 {
-        return;
-    }
+    if n < 2 { return; }
     let depth = 2 * (usize::BITS - n.leading_zeros()) as i32 + 4;
     sort_generic_impl(arr, 0, n as isize - 1, depth);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// i64-specialised implementation (with counting sort)
+// i64-specialised implementation (with counting sort fast path)
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn sort_impl(a: &mut [i64], mut lo: isize, mut hi: isize, mut depth: i32) {
@@ -41,8 +35,9 @@ fn sort_impl(a: &mut [i64], mut lo: isize, mut hi: isize, mut depth: i32) {
     while lo < hi {
         let size = (hi - lo + 1) as usize;
 
+        // Base case: pure Rust insertion sort — no .sort() call
         if depth <= 0 || size <= SMALL_N {
-            insertion_sort(a, lo as usize, hi as usize);
+            insertion_sort_i64(a, lo as usize, hi as usize);
             return;
         }
 
@@ -70,10 +65,7 @@ fn sort_impl(a: &mut [i64], mut lo: isize, mut hi: isize, mut depth: i32) {
             let asc = a[lo as usize..=hi as usize].windows(2).all(|w| w[0] <= w[1]);
             if asc { return; }
             let desc = a[lo as usize..=hi as usize].windows(2).all(|w| w[0] >= w[1]);
-            if desc {
-                a[lo as usize..=hi as usize].reverse();
-                return;
-            }
+            if desc { a[lo as usize..=hi as usize].reverse(); return; }
         }
 
         // Oracle-seeded golden-ratio pivot positions
@@ -87,22 +79,19 @@ fn sort_impl(a: &mut [i64], mut lo: isize, mut hi: isize, mut depth: i32) {
 
         let (lt, gt) = dual_partition_i64(a, lo, hi, p1, p2);
 
-        let left_n  = (lt - lo)     as usize;
-        let mid_n   = (gt - lt + 1) as usize;
-        let right_n = (hi - gt)     as usize;
-
+        // Sort 3 region descriptors by size — comparison network, no .sort()
         let mut regions = [
-            (left_n,  lo,    lt - 1),
-            (mid_n,   lt,    gt    ),
-            (right_n, gt + 1, hi   ),
+            ((lt - lo)     as usize, lo,    lt - 1),
+            ((gt - lt + 1) as usize, lt,    gt    ),
+            ((hi - gt)     as usize, gt + 1, hi   ),
         ];
-        regions.sort_by_key(|r| r.0);
+        if regions[0].0 > regions[1].0 { regions.swap(0, 1); }
+        if regions[1].0 > regions[2].0 { regions.swap(1, 2); }
+        if regions[0].0 > regions[1].0 { regions.swap(0, 1); }
 
         for i in 0..2 {
             let (_, r_lo, r_hi) = regions[i];
-            if r_lo < r_hi {
-                sort_impl(a, r_lo, r_hi, depth - 1);
-            }
+            if r_lo < r_hi { sort_impl(a, r_lo, r_hi, depth - 1); }
         }
 
         (lo, hi) = (regions[2].1, regions[2].2);
@@ -126,11 +115,9 @@ fn dual_partition_i64(a: &mut [i64], lo: isize, hi: isize, p1: i64, p2: i64) -> 
     while i <= gt {
         let v = a[i as usize];
         if v < p1 {
-            a.swap(lt as usize, i as usize);
-            lt += 1; i += 1;
+            a.swap(lt as usize, i as usize); lt += 1; i += 1;
         } else if v > p2 {
-            a.swap(i as usize, gt as usize);
-            gt -= 1;
+            a.swap(i as usize, gt as usize); gt -= 1;
         } else {
             i += 1;
         }
@@ -138,8 +125,17 @@ fn dual_partition_i64(a: &mut [i64], lo: isize, hi: isize, p1: i64, p2: i64) -> 
     (lt, gt)
 }
 
+fn insertion_sort_i64(a: &mut [i64], lo: usize, hi: usize) {
+    for i in lo + 1..=hi {
+        let key = a[i];
+        let mut j = i;
+        while j > lo && a[j - 1] > key { a[j] = a[j - 1]; j -= 1; }
+        a[j] = key;
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Generic implementation (no counting sort)
+// Generic implementation (no counting sort, pure Ord comparison)
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn sort_generic_impl<T: Ord + Clone>(a: &mut [T], mut lo: isize, mut hi: isize, mut depth: i32) {
@@ -148,8 +144,9 @@ fn sort_generic_impl<T: Ord + Clone>(a: &mut [T], mut lo: isize, mut hi: isize, 
     while lo < hi {
         let size = (hi - lo + 1) as usize;
 
+        // Base case: pure insertion sort — no .sort() call
         if depth <= 0 || size <= SMALL_N {
-            a[lo as usize..=hi as usize].sort();
+            insertion_sort_generic(a, lo as usize, hi as usize);
             return;
         }
 
@@ -170,22 +167,19 @@ fn sort_generic_impl<T: Ord + Clone>(a: &mut [T], mut lo: isize, mut hi: isize, 
 
         let (lt, gt) = dual_partition_generic(a, lo, hi, p1, p2);
 
-        let left_n  = (lt - lo)     as usize;
-        let mid_n   = (gt - lt + 1) as usize;
-        let right_n = (hi - gt)     as usize;
-
+        // Sort 3 region descriptors — comparison network, no .sort()
         let mut regions = [
-            (left_n,  lo,    lt - 1),
-            (mid_n,   lt,    gt    ),
-            (right_n, gt + 1, hi   ),
+            ((lt - lo)     as usize, lo,    lt - 1),
+            ((gt - lt + 1) as usize, lt,    gt    ),
+            ((hi - gt)     as usize, gt + 1, hi   ),
         ];
-        regions.sort_by_key(|r| r.0);
+        if regions[0].0 > regions[1].0 { regions.swap(0, 1); }
+        if regions[1].0 > regions[2].0 { regions.swap(1, 2); }
+        if regions[0].0 > regions[1].0 { regions.swap(0, 1); }
 
         for i in 0..2 {
             let (_, r_lo, r_hi) = regions[i];
-            if r_lo < r_hi {
-                sort_generic_impl(a, r_lo, r_hi, depth - 1);
-            }
+            if r_lo < r_hi { sort_generic_impl(a, r_lo, r_hi, depth - 1); }
         }
 
         (lo, hi) = (regions[2].1, regions[2].2);
@@ -197,7 +191,10 @@ fn ninther_generic<T: Ord + Clone>(a: &[T], lo: isize, hi: isize, idx: isize) ->
     let i0 = lo.max(idx - 1) as usize;
     let i2 = hi.min(idx + 1) as usize;
     let mut vals = [a[i0].clone(), a[idx as usize].clone(), a[i2].clone()];
-    vals.sort();
+    // 3-element comparison network — no .sort()
+    if vals[0] > vals[1] { vals.swap(0, 1); }
+    if vals[1] > vals[2] { vals.swap(1, 2); }
+    if vals[0] > vals[1] { vals.swap(0, 1); }
     vals[1].clone()
 }
 
@@ -209,11 +206,9 @@ fn dual_partition_generic<T: Ord + Clone>(
     while i <= gt {
         let v = a[i as usize].clone();
         if v < p1 {
-            a.swap(lt as usize, i as usize);
-            lt += 1; i += 1;
+            a.swap(lt as usize, i as usize); lt += 1; i += 1;
         } else if v > p2 {
-            a.swap(i as usize, gt as usize);
-            gt -= 1;
+            a.swap(i as usize, gt as usize); gt -= 1;
         } else {
             i += 1;
         }
@@ -221,18 +216,11 @@ fn dual_partition_generic<T: Ord + Clone>(
     (lt, gt)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-fn insertion_sort(a: &mut [i64], lo: usize, hi: usize) {
+fn insertion_sort_generic<T: Ord + Clone>(a: &mut [T], lo: usize, hi: usize) {
     for i in lo + 1..=hi {
-        let key = a[i];
+        let key = a[i].clone();
         let mut j = i;
-        while j > lo && a[j - 1] > key {
-            a[j] = a[j - 1];
-            j -= 1;
-        }
+        while j > lo && a[j - 1] > key { a[j] = a[j - 1].clone(); j -= 1; }
         a[j] = key;
     }
 }

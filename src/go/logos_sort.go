@@ -1,19 +1,17 @@
 // Package logossort implements LogosSort — a golden-ratio dual-pivot introsort.
 //
-// Two pivots placed at φ (≈61.8%) and 1−φ (≈38.2%) golden-ratio positions
-// of a chaos-seeded index. Ninther pivot refinement, three-way partition,
-// counting-sort fast path for dense int ranges, O(log n) depth limit.
+// Self-contained — zero calls to sort.Ints or any stdlib sort internally.
+// Insertion sort is used for base cases so the algorithm stands alone.
 package logossort
 
 import (
 	"math"
 	"math/rand"
-	"sort"
 )
 
 const (
-	phi   = 0.6180339887498949
-	phi2  = 0.3819660112501051
+	phi    = 0.6180339887498949
+	phi2   = 0.3819660112501051
 	smallN = 48
 )
 
@@ -39,8 +37,9 @@ func sortImpl(a []int, lo, hi, depth int) {
 	for lo < hi {
 		size := hi - lo + 1
 
+		// Base case: pure Go insertion sort — no sort.Ints call
 		if depth <= 0 || size <= smallN {
-			sort.Ints(a[lo : hi+1])
+			insertionSort(a, lo, hi)
 			return
 		}
 
@@ -111,48 +110,46 @@ func sortImpl(a []int, lo, hi, depth int) {
 
 		lt, gt := dualPartition(a, lo, hi, p1, p2)
 
+		// Sort 3 region descriptors by size — comparison network, no stdlib sort
 		type region struct{ n, lo, hi int }
-		regions := [3]region{
-			{lt - lo, lo, lt - 1},
-			{gt - lt + 1, lt, gt},
-			{hi - gt, gt + 1, hi},
+		r0 := region{lt - lo, lo, lt - 1}
+		r1 := region{gt - lt + 1, lt, gt}
+		r2 := region{hi - gt, gt + 1, hi}
+		if r0.n > r1.n { r0, r1 = r1, r0 }
+		if r1.n > r2.n { r1, r2 = r2, r1 }
+		if r0.n > r1.n { r0, r1 = r1, r0 }
+
+		if r0.lo < r0.hi {
+			sortImpl(a, r0.lo, r0.hi, depth-1)
 		}
-		// Sort 3 regions by size (3-element network)
-		if regions[0].n > regions[1].n {
-			regions[0], regions[1] = regions[1], regions[0]
-		}
-		if regions[1].n > regions[2].n {
-			regions[1], regions[2] = regions[2], regions[1]
-		}
-		if regions[0].n > regions[1].n {
-			regions[0], regions[1] = regions[1], regions[0]
+		if r1.lo < r1.hi {
+			sortImpl(a, r1.lo, r1.hi, depth-1)
 		}
 
-		for i := 0; i < 2; i++ {
-			r := regions[i]
-			if r.lo < r.hi {
-				sortImpl(a, r.lo, r.hi, depth-1)
-			}
-		}
-
-		lo, hi = regions[2].lo, regions[2].hi
+		lo, hi = r2.lo, r2.hi
 		depth--
 	}
 }
 
+func insertionSort(a []int, lo, hi int) {
+	for i := lo + 1; i <= hi; i++ {
+		key := a[i]
+		j := i - 1
+		for j >= lo && a[j] > key {
+			a[j+1] = a[j]
+			j--
+		}
+		a[j+1] = key
+	}
+}
+
 func ninther(a []int, lo, hi, idx int) int {
-	i0 := max(lo, idx-1)
-	i2 := min(hi, idx+1)
+	i0 := imax(lo, idx-1)
+	i2 := imin(hi, idx+1)
 	x, y, z := a[i0], a[idx], a[i2]
-	if x > y {
-		x, y = y, x
-	}
-	if y > z {
-		y, z = z, y
-	}
-	if x > y {
-		x, y = y, x
-	}
+	if x > y { x, y = y, x }
+	if y > z { y, z = z, y }
+	if x > y { x, y = y, x }
 	_ = z
 	return y
 }
@@ -178,20 +175,12 @@ func dualPartition(a []int, lo, hi, p1, p2 int) (int, int) {
 	return lt, gt
 }
 
-func ilog2(n int) int {
-	return int(math.Log2(float64(n)))
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
+func ilog2(n int) int { return int(math.Log2(float64(n))) }
+func imax(a, b int) int {
+	if a > b { return a }
 	return b
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
+func imin(a, b int) int {
+	if a < b { return a }
 	return b
 }

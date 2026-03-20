@@ -1,14 +1,22 @@
 /**
  * LogosSort — Golden-ratio dual-pivot introsort (TypeScript)
  *
- * Two pivots placed at φ (≈61.8%) and 1−φ (≈38.2%) golden-ratio positions
- * of a chaos-seeded index. Ninther pivot refinement, three-way partition,
- * counting-sort fast path for dense integer ranges, O(log n) depth limit.
+ * Pure TypeScript — zero calls to Array.prototype.sort internally.
+ * Insertion sort is used for base cases so the algorithm stands alone.
  */
 
 const PHI  = 0.6180339887498949;
 const PHI2 = 0.3819660112501051;
 const SMALL_N = 48;
+
+function insertionSort(a: number[], lo: number, hi: number): void {
+  for (let i = lo + 1; i <= hi; i++) {
+    const key = a[i];
+    let j = i - 1;
+    while (j >= lo && a[j] > key) { a[j + 1] = a[j]; j--; }
+    a[j + 1] = key;
+  }
+}
 
 function ninther(a: number[], lo: number, hi: number, idx: number): number {
   const i0 = Math.max(lo, idx - 1);
@@ -28,11 +36,9 @@ function dualPartition(
   while (i <= gt) {
     const v = a[i];
     if (v < p1) {
-      [a[lt], a[i]] = [a[i], a[lt]];
-      lt++; i++;
+      [a[lt], a[i]] = [a[i], a[lt]]; lt++; i++;
     } else if (v > p2) {
-      [a[i], a[gt]] = [a[gt], a[i]];
-      gt--;
+      [a[i], a[gt]] = [a[gt], a[i]]; gt--;
     } else {
       i++;
     }
@@ -45,8 +51,7 @@ function sortImpl(a: number[], lo: number, hi: number, depth: number): void {
     const size = hi - lo + 1;
 
     if (depth <= 0 || size <= SMALL_N) {
-      const sub = a.slice(lo, hi + 1).sort((x, y) => x - y);
-      for (let i = 0; i < sub.length; i++) a[lo + i] = sub[i];
+      insertionSort(a, lo, hi);
       return;
     }
 
@@ -94,25 +99,24 @@ function sortImpl(a: number[], lo: number, hi: number, depth: number): void {
 
     const [lt, gt] = dualPartition(a, lo, hi, p1, p2);
 
-    const regions: [number, number, number][] = [
-      [lt - lo,      lo,    lt - 1],
-      [gt - lt + 1,  lt,    gt    ],
-      [hi - gt,      gt + 1, hi   ],
-    ].sort((a, b) => a[0] - b[0]) as [number, number, number][];
+    // Sort 3 region descriptors by size — comparison network, no Array.sort
+    let r0: [number, number, number] = [lt - lo,      lo,    lt - 1];
+    let r1: [number, number, number] = [gt - lt + 1,  lt,    gt    ];
+    let r2: [number, number, number] = [hi - gt,      gt + 1, hi   ];
+    if (r0[0] > r1[0]) { [r0, r1] = [r1, r0]; }
+    if (r1[0] > r2[0]) { [r1, r2] = [r2, r1]; }
+    if (r0[0] > r1[0]) { [r0, r1] = [r1, r0]; }
 
-    for (let i = 0; i < 2; i++) {
-      const [, rLo, rHi] = regions[i];
-      if (rLo < rHi) sortImpl(a, rLo, rHi, depth - 1);
-    }
+    if (r0[1] < r0[2]) sortImpl(a, r0[1], r0[2], depth - 1);
+    if (r1[1] < r1[2]) sortImpl(a, r1[1], r1[2], depth - 1);
 
-    [, lo, hi] = regions[2];
-    depth--;
+    lo = r2[1]; hi = r2[2]; depth--;
   }
 }
 
 /**
  * Sort an array of numbers in-place using LogosSort.
- * Returns the same array sorted.
+ * No internal calls to Array.prototype.sort.
  */
 export function logosSort(arr: number[]): number[] {
   const n = arr.length;
