@@ -26,7 +26,7 @@ PHI2_NUM = round(0.3819660112501051 * (1 << PHI_SHIFT))
 # represents the smaller portion of the golden cut.
 
 
-def logos_ultra_sort(arr):
+def logos_sort(arr):
     import math as _math
 
     n = len(arr)
@@ -114,30 +114,29 @@ def logos_ultra_sort(arr):
         return lt, gt
         # lt = first index of the middle region; gt = last index of the middle region.
 
+    def _insertion_sort(a, lo, hi):
+        # Pure insertion sort — no calls to sorted() or any C-backed function.
+        # Optimal for small n: O(n²) comparisons are few in absolute terms,
+        # cache locality is excellent, and no auxiliary memory is needed.
+        for i in range(lo + 1, hi + 1):
+            key = a[i]; j = i - 1
+            while j >= lo and a[j] > key:
+                a[j + 1] = a[j]; j -= 1
+            a[j + 1] = key
+
     def _sort(a, lo, hi, depth):
         while lo < hi:
 
             size = hi - lo + 1
             # Number of elements in the current subarray being sorted.
 
-            # We've gone as deep as our depth budget allows —
-            # time to let Python's built-in sorted() take the wheel.
-            # This is wu wei in action: the Taoist art of knowing when
-            # to stop paddling and let the river carry you. Timsort is
-            # very good at this part. We trust it completely. No ego.
-            if depth <= 0:
-                a[lo:hi + 1] = sorted(a[lo:hi + 1])
-                # Fallback to Timsort in-place on the slice when depth budget is exhausted.
+            # Depth budget exhausted or subarray small enough for insertion sort.
+            # The budget 2⌊log₂n⌋ + 4 fires only on genuinely degenerate input;
+            # insertion sort handles both cases without calling any external function.
+            if depth <= 0 or size <= 48:
+                _insertion_sort(a, lo, hi)
+                # Pure Python insertion sort — zero C sort calls.
                 return
-
-            # Small slices (48 elements or fewer) get handed straight
-            # to Python's sorted() — no ceremony needed. The shepherd
-            # who's found 49 sheep doesn't build a temple, he just
-            # walks them home. Some jobs are small enough to just do.
-            if size <= 48:
-                a[lo:hi + 1] = sorted(a[lo:hi + 1])
-                # Insertion-sort-class delegate: Timsort is optimal for small n, so we yield early.
-                break
 
             # If we're sorting integers and they're packed into a tight range,
             # we can count rather than compare — like a census taker who
@@ -146,14 +145,16 @@ def logos_ultra_sort(arr):
             # equality. No element is weighed against another; each simply
             # takes its rightful place on the register.
             if isinstance(a[lo], int):
-                mn = min(a[lo:hi + 1])
-                # Minimum value in the subarray — used as the offset for the count array.
-
-                mx = max(a[lo:hi + 1])
-                # Maximum value in the subarray — used to compute the count array length.
+                mn = mx = a[lo]
+                for i in range(lo + 1, hi + 1):
+                    v = a[i]
+                    if v < mn: mn = v
+                    elif v > mx: mx = v
+                # Single linear scan for min and max — no calls to min() or max().
 
                 span = mx - mn
                 # Value range of the subarray: how wide the counting array needs to be.
+
 
                 if span < size * 4:
                     counts = [0] * (span + 1)
@@ -261,18 +262,22 @@ def logos_ultra_sort(arr):
             # meek shall inherit the earth, and here the two smaller regions
             # get served first while the largest quietly becomes our next
             # loop iteration. Stack-friendly and spiritually consistent!
-            regions = sorted(
-                [(left_n, lo, lt-1), (mid_n, lt, gt), (right_n, gt+1, hi)],
-                key=lambda r: r[0]
-            )
-            # List of (size, lo, hi) triples sorted ascending by size — smallest work first.
+            r0 = (left_n,  lo,    lt - 1)
+            r1 = (mid_n,   lt,    gt    )
+            r2 = (right_n, gt + 1, hi   )
+            # Three compare-swaps sort the descriptors by size — no sorted() call,
+            # no list allocation, O(1) unconditionally.
+            if r0[0] > r1[0]: r0, r1 = r1, r0
+            if r1[0] > r2[0]: r1, r2 = r2, r1
+            if r0[0] > r1[0]: r0, r1 = r1, r0
+            # r0 ≤ r1 ≤ r2 by size — smallest two recurse, largest loops.
 
-            for _, r_lo, r_hi in regions[:2]:
+            for _, r_lo, r_hi in (r0, r1):
                 if r_lo < r_hi:
                     _sort(a, r_lo, r_hi, depth - 1)
             # Recurse into the two smaller regions, each with depth decremented by one.
 
-            lo, hi = regions[2][1], regions[2][2]
+            lo, hi = r2[1], r2[2]
             # Tail-call optimisation: replace lo/hi with the largest region and loop instead of recurse.
 
             depth -= 1
