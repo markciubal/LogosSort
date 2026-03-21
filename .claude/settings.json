@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mingw64/**)",
+      "Bash(/mingw64/bin/gcc --version)",
+      "Bash(CL_EXE=\"/c/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe\" \"$CL_EXE\")"
+    ]
+  }
+}
