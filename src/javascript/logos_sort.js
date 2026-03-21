@@ -136,3 +136,56 @@ function logosSort(arr) {
 }
 
 module.exports = { logosSort };
+
+// ── Self-benchmark (heap output) ──────────────────────────────────────────
+// Run directly:  node logos_sort.js
+// Force GC:      node --expose-gc logos_sort.js
+if (require.main === module) {
+  const hasGC = typeof global.gc === 'function';
+  const SIZES = [500_000, 2_500_000, 10_000_000];
+
+  function randomArray(n) {
+    const a = new Array(n);
+    for (let i = 0; i < n; i++) a[i] = (Math.random() * 1_000_000_000) | 0;
+    return a;
+  }
+
+  function fmtBytes(b) {
+    if (b >= 1 << 20) return `${(b / (1 << 20)).toFixed(1)} MB`;
+    if (b >= 1 << 10) return `${(b / (1 << 10)).toFixed(1)} KB`;
+    return `${b} B`;
+  }
+
+  console.log('LogosSort heap measurement');
+  console.log(`GC control: ${hasGC ? 'yes (--expose-gc)' : 'no (approx) — run with node --expose-gc for accuracy'}`);
+  console.log('-'.repeat(60));
+  console.log(`${'n'.padStart(12)}  ${'time'.padStart(8)}  ${'heap delta'.padStart(12)}  ${'B/item'.padStart(8)}`);
+  console.log('-'.repeat(60));
+
+  for (const n of SIZES) {
+    const data = randomArray(n);
+
+    // ── time (no heap tracking) ──────────────────────────────────────────
+    const copy1 = data.slice();
+    const t0 = performance.now();
+    logosSort(copy1);
+    const elapsed = (performance.now() - t0) / 1000;
+
+    // ── heap (separate pass) ─────────────────────────────────────────────
+    const copy2 = data.slice();   // input pre-allocated outside measurement
+    if (hasGC) global.gc();
+    const heapBefore = process.memoryUsage().heapUsed;
+    logosSort(copy2);
+    const heapDelta = Math.max(process.memoryUsage().heapUsed - heapBefore, 0);
+
+    console.log(
+      `${n.toLocaleString().padStart(12)}  ` +
+      `${elapsed.toFixed(3).padStart(7)}s  ` +
+      `${fmtBytes(heapDelta).padStart(12)}  ` +
+      `${(heapDelta / n).toFixed(2).padStart(7)}B`
+    );
+  }
+
+  console.log('-'.repeat(60));
+  console.log('Space: O(log n) — only recursion stack frames (no auxiliary buffer)');
+}
