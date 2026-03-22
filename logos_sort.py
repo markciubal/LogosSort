@@ -288,8 +288,3 @@ def logos_sort(arr):
 
     _sort(a, 0, n - 1, depth_limit)
     return a
-
-
-data = [64, 34, 25, 12, 22, 11, 90, 42, 5, 77]
-print("Before:", data[:])
-print("After: ", logos_ultra_sort(data))

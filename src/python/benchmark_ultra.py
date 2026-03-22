@@ -1,5 +1,5 @@
 """
-Benchmark: LogosUltraSort vs logos_sort_inplace vs pure-Python TimSort
+Benchmark: LogosSort (copy) vs logos_sort_inplace vs pure-Python TimSort
 Sizes: 500 000 · 2 500 000 · 10 000 000 (comparison sort path)
         1 000 000 000 (counting sort fast path, tight integer range)
 
@@ -11,7 +11,7 @@ NOTE — TimSort size cap
   It is only run for n <= TIM_MAX (10 000); above that its column is skipped.
 
 NOTE — 1B items
-  The 1B run uses integers in [0, 3] so logos_ultra_sort takes its counting
+  The 1B run uses integers in [0, 3] so logos_sort takes its counting
   sort fast path (O(n) time, O(range) aux space — 4 counters).
   Even so, the Python list backing store is ~8 GB of object pointers.
   Ensure >=16 GB free RAM before running that section.
@@ -31,15 +31,10 @@ import os
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# ── Import logos_ultra_sort ────────────────────────────────────────────────────
+# ── Import logos_sort (copy-returning variant, source of truth) ────────────────
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-_ULTRA_FILE = os.path.join(_REPO_ROOT, "logos_ultra_sort (1).py")
-
-import importlib.util
-_spec = importlib.util.spec_from_file_location("logos_ultra_sort_mod", _ULTRA_FILE)
-_mod  = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-logos_ultra_sort = _mod.logos_ultra_sort
+sys.path.insert(0, _REPO_ROOT)
+from logos_sort import logos_sort as logos_sort_copy
 
 # Also import the canonical in-place variant and pure-Python TimSort
 sys.path.insert(0, os.path.dirname(__file__))
@@ -92,7 +87,7 @@ SEP  = "-" * 80
 DSEP = "=" * 80
 
 print(DSEP)
-print("  LogosUltraSort vs logos_sort_inplace vs pure-Python TimSort  —  Time + Space")
+print("  LogosSort (copy) vs logos_sort_inplace vs pure-Python TimSort  —  Time + Space")
 print("  All pure Python, zero C sort calls.")
 print("  Timing: avg of 3 runs (no tracer).  Memory: 1 traced pass, aux only.")
 print(f"  TimSort column shown only for n <= {TIM_MAX:,} (recursive merge is O(n^2) allocs).")
@@ -105,12 +100,12 @@ for n in SIZES:
     run_tim = n <= TIM_MAX
 
     # timing
-    ultra_t   = bench_time(logos_ultra_sort,  data)
+    copy_t    = bench_time(logos_sort_copy,    data)
     inplace_t = bench_time(logos_sort_inplace, data, inplace=True)
     tim_t     = bench_time(tim_sort, data, inplace=True) if run_tim else None
 
     # memory
-    ultra_mem   = bench_memory(logos_ultra_sort,  data)
+    copy_mem    = bench_memory(logos_sort_copy,    data)
     inplace_mem = bench_memory(logos_sort_inplace, data, inplace=True)
     tim_mem     = bench_memory(tim_sort, data, inplace=True) if run_tim else None
 
@@ -123,9 +118,9 @@ for n in SIZES:
     print(SEP)
 
     rows = [
-        ("LogosUltraSort",     ultra_t,   ultra_mem,
+        ("logos_sort (copy)",   copy_t,    copy_mem,
          f"O(log n)  ~{stack_kb} KB stack"),
-        ("logos_sort_inplace", inplace_t, inplace_mem,
+        ("logos_sort_inplace",  inplace_t, inplace_mem,
          f"O(log n)  ~{stack_kb} KB stack"),
     ]
     for name, t, mem, theory in rows:
@@ -139,14 +134,14 @@ for n in SIZES:
         print(f"  {'TimSort (pure Python)':<26} {'--':>8}   {'n/a':>10}   {'n/a':>7}   skipped (n > {TIM_MAX:,})")
     print(SEP)
 
-    if ultra_t > 0 and inplace_t > 0:
-        ratio = ultra_t / inplace_t
-        faster = "UltraSort faster" if ratio < 1 else "inplace faster"
-        print(f"  Ultra vs inplace: {ratio:.2f}x ({faster})")
-    if run_tim and tim_t and ultra_t > 0:
-        ratio2 = ultra_t / tim_t
-        faster2 = "UltraSort faster" if ratio2 < 1 else "TimSort faster"
-        print(f"  Ultra vs TimSort: {ratio2:.2f}x ({faster2})")
+    if copy_t > 0 and inplace_t > 0:
+        ratio = copy_t / inplace_t
+        faster = "copy faster" if ratio < 1 else "inplace faster"
+        print(f"  copy vs inplace: {ratio:.2f}x ({faster})")
+    if run_tim and tim_t and copy_t > 0:
+        ratio2 = copy_t / tim_t
+        faster2 = "logos_sort faster" if ratio2 < 1 else "TimSort faster"
+        print(f"  logos_sort vs TimSort: {ratio2:.2f}x ({faster2})")
 
 
 # ── 1 billion item counting-sort trial ───────────────────────────────────────
@@ -167,8 +162,8 @@ try:
 
     arr = data1b[:]
     t0  = time.perf_counter()
-    logos_ultra_sort(arr)
-    ultra_1b = time.perf_counter() - t0
+    logos_sort_copy(arr)
+    copy_1b = time.perf_counter() - t0
 
     arr2 = data1b[:]
     t0   = time.perf_counter()
@@ -181,13 +176,13 @@ try:
     print(SEP)
     print(f"  {'Algorithm':<26} {'Time':>8}   Notes")
     print(SEP)
-    print(f"  {'LogosUltraSort':<26} {ultra_1b:>6.2f}s   O(n), 4-entry count array (slice write)")
-    print(f"  {'logos_sort_inplace':<26} {inplace_1b:>6.2f}s   O(n), 4-entry count array (element write)")
+    print(f"  {'logos_sort (copy)':<26} {copy_1b:>6.2f}s   O(n), 4-entry count array")
+    print(f"  {'logos_sort_inplace':<26} {inplace_1b:>6.2f}s   O(n), 4-entry count array")
     print(f"  {'TimSort (pure Python)':<26} {'--':>8}   skipped — O(n^2) allocs, infeasible at 1B")
     print(SEP)
-    ratio_1b = ultra_1b / inplace_1b if inplace_1b > 0 else float('inf')
-    faster_1b = "UltraSort faster" if ratio_1b < 1 else "inplace faster"
-    print(f"  Ultra vs inplace at 1B: {ratio_1b:.2f}x ({faster_1b})")
+    ratio_1b = copy_1b / inplace_1b if inplace_1b > 0 else float('inf')
+    faster_1b = "copy faster" if ratio_1b < 1 else "inplace faster"
+    print(f"  copy vs inplace at 1B: {ratio_1b:.2f}x ({faster_1b})")
 
 except MemoryError:
     print("\n  MemoryError: not enough RAM for 1B-item Python list on this machine.")

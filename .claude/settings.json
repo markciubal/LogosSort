@@ -1,4 +1,7 @@
 {
+  "env": {
+    "PYTHONRECURSIONLIMIT": "1000000"
+  },
   "permissions": {
     "allow": [
       "Read(//mingw64/**)",

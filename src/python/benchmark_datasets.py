@@ -1,5 +1,5 @@
 """
-benchmark_datasets.py — LogosUltraSort per-dataset benchmark
+benchmark_datasets.py — LogosSort per-dataset benchmark
 
 Kaggle dataset categories (one number per line, .txt files):
   uniform          Uniform random floats
@@ -11,14 +11,13 @@ Kaggle dataset categories (one number per line, .txt files):
   Combinations_*   Mixed ascending/descending integer runs
 
 For each (dataset, size), two algorithms are timed:
-  logos_ultra_sort   -- copy-returning variant  (logos_ultra_sort (1).py)
+  logos_sort (copy)  -- copy-returning variant  (logos_sort.py)
   logos_sort_inplace -- in-place sibling        (logos_sort.py)
 
 "Equivalent" pairing rationale:
-  Both are pure Python, zero C calls.  logos_sort_inplace is the canonical
-  reference; logos_ultra_sort adds the slice-write counting sort and slightly
-  different structure.  The interesting question is whether ultra's extra
-  tricks win on each specific data shape.
+  Both are pure Python, zero C calls, same core algorithm.
+  The interesting question is whether the copy-returning variant's
+  working-copy allocation changes performance on each data shape.
 
 Each (file, algorithm) pair is run RUNS=2 times; wall-clock results are averaged.
 
@@ -32,7 +31,6 @@ import os
 import re
 import sys
 import time
-import importlib.util
 
 # ── Force UTF-8 output on Windows ─────────────────────────────────────────────
 if hasattr(sys.stdout, "reconfigure"):
@@ -41,12 +39,9 @@ if hasattr(sys.stdout, "reconfigure"):
 # ── Import algorithms ──────────────────────────────────────────────────────────
 _HERE      = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
-_ULTRA_FILE = os.path.join(_REPO_ROOT, "logos_ultra_sort (1).py")
 
-_spec = importlib.util.spec_from_file_location("logos_ultra_sort_mod", _ULTRA_FILE)
-_mod  = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-logos_ultra_sort = _mod.logos_ultra_sort
+sys.path.insert(0, _REPO_ROOT)
+from logos_sort import logos_sort as logos_sort_copy
 
 sys.path.insert(0, _HERE)
 from logos_sort import logos_sort_inplace
@@ -166,7 +161,7 @@ DSEP = "=" * 78
 
 def run(kaggle_root: str, target_sizes: list[int]) -> None:
     print(DSEP)
-    print("  LogosUltraSort vs logos_sort_inplace  --  Kaggle Dataset Benchmark")
+    print("  LogosSort (copy) vs logos_sort_inplace  --  Kaggle Dataset Benchmark")
     print(f"  Runs per measurement: {RUNS}  (averaged)")
     print(f"  Target sizes: {[f'{s:,}' for s in sorted(target_sizes)]}")
     print(f"  Dataset root: {kaggle_root}")
@@ -185,7 +180,7 @@ def run(kaggle_root: str, target_sizes: list[int]) -> None:
         label, path_note = CATEGORY_META.get(cat, (cat, ""))
         print(f"\n  [{label}]  ({path_note})")
         print(SEP)
-        print(f"  {'Size':>10}   {'UltraSort':>10}   {'inplace':>10}   {'TimSort':>10}   {'ratio':>7}   Winner")
+        print(f"  {'Size':>10}   {'copy':>10}   {'inplace':>10}   {'TimSort':>10}   {'ratio':>7}   Winner")
         print(SEP)
 
         for sz in sorted(file_map[cat]):
@@ -196,16 +191,16 @@ def run(kaggle_root: str, target_sizes: list[int]) -> None:
                 print(f"  {sz:>10,}   (empty file, skipped)")
                 continue
 
-            ultra_t   = bench(logos_ultra_sort,  data)
+            copy_t    = bench(logos_sort_copy,    data)
             inplace_t = bench(logos_sort_inplace, data, inplace=True)
             run_tim   = actual_n <= TIM_MAX
             tim_t     = bench(tim_sort, data, inplace=True) if run_tim else None
 
-            ratio   = ultra_t / inplace_t if inplace_t > 0 else float("inf")
-            winner  = "ultra" if ratio < 0.99 else ("inplace" if ratio > 1.01 else "tied")
+            ratio   = copy_t / inplace_t if inplace_t > 0 else float("inf")
+            winner  = "copy" if ratio < 0.99 else ("inplace" if ratio > 1.01 else "tied")
 
             tim_col = fmt_t(tim_t) if run_tim else "     n/a"
-            print(f"  {actual_n:>10,}   {fmt_t(ultra_t):>10}   {fmt_t(inplace_t):>10}"
+            print(f"  {actual_n:>10,}   {fmt_t(copy_t):>10}   {fmt_t(inplace_t):>10}"
                   f"   {tim_col:>10}   {ratio:>6.2f}x   {winner}")
 
         print(SEP)
@@ -215,7 +210,7 @@ def run(kaggle_root: str, target_sizes: list[int]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="LogosUltraSort per-dataset benchmark (Kaggle archive)")
+        description="LogosSort per-dataset benchmark (Kaggle archive)")
     parser.add_argument(
         "--kaggle", metavar="PATH", required=True,
         help="Root directory of the Kaggle sort-benchmark archive")
