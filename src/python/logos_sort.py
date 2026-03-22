@@ -45,19 +45,19 @@ Pure Python — zero calls to C-backed sort functions anywhere in this file.
 import random
 import math
 
-# φ and 1−φ encoded as 61-bit fixed-point integers.
-# Multiplying a 53-bit chaos integer by PHI_NUM and right-shifting 114 bits
-# (= 61 + 53) yields the golden-ratio position of that chaos value within any
-# span — exact integer arithmetic, no floating-point rounding error in pivot index.
+# These are special numbers built from the golden ratio — phi (φ ≈ 0.618).
+# You see phi everywhere in nature: sunflower seeds, seashells, pinecones!
+# We store it as a big whole number so our math stays perfectly exact,
+# with no rounding mistakes from decimals.
 PHI_SHIFT = 61
 PHI_NUM   = round(0.6180339887498949 * (1 << PHI_SHIFT))   # φ  · 2^61
 PHI2_NUM  = round(0.3819660112501051 * (1 << PHI_SHIFT))   # (1−φ) · 2^61
 
 
-# ── Base case ─────────────────────────────────────────────────────────────────
-# Insertion sort is optimal for small n: O(n²) comparisons are few in absolute
-# terms, branch prediction is excellent on nearly-ordered data, and every
-# element touches only a contiguous cache line. No auxiliary memory is needed.
+# Sorting a small group by hand!
+# Imagine putting your books in order one at a time.
+# You pick one up, scoot over the ones that should come after it,
+# then drop it into the right spot. Great for tiny piles!
 
 def _insertion_sort(a, lo, hi):
     for i in range(lo + 1, hi + 1):
@@ -67,73 +67,68 @@ def _insertion_sort(a, lo, hi):
         a[j + 1] = key
 
 
-# ── Pivot refinement ──────────────────────────────────────────────────────────
-# A pivot chosen uniformly at random lies in the outer 25% of the sorted order
-# ~25% of the time, producing lopsided partitions and degrading performance.
-# Ninther takes the median of three neighbours around the candidate index,
-# concentrating the pivot toward the true median without a full O(n) scan.
-# The clamp to [lo, hi] handles candidates at the subarray boundary.
+# Picking a good "middle" number to split the list!
+# Instead of grabbing just one number, we look at it and its two neighbors.
+# We pick the one that's not too big and not too small — just right,
+# like Goldilocks choosing her porridge!
 
 def _ninther(a, lo, hi, idx):
     i0 = max(lo, idx - 1)
     i2 = min(hi, idx + 1)
     x, y, z = a[i0], a[idx], a[i2]
-    # Sorting network for three values: three compare-swaps suffice.
+    # Three quick swaps to find the middle value of the three.
     if x > y: x, y = y, x
     if y > z: y, z = z, y
     if x > y: x, y = y, x
-    return y   # y is the median
+    return y   # y is the middle one
 
 
-# ── Partition ─────────────────────────────────────────────────────────────────
-# Three-way dual-pivot partition after Yaroslavskiy (Java 7 Arrays.sort).
-# Invariant maintained throughout the scan:
-#   a[lo : lt]   < p1        — strictly left of the left pivot
-#   a[lt : i]    in [p1, p2] — middle region, already classified
-#   a[gt+1 : hi] > p2        — strictly right of the right pivot
-#   a[i  : gt]   unclassified
-#
-# Each element is visited exactly once by i, or swapped once from gt.
-# Elements equal to a pivot are absorbed into the middle region and never
-# re-examined in recursive calls, which is why equal-element arrays are O(n).
+# Sorting everything into three groups!
+# Imagine two lines drawn on the floor (p1 and p2).
+# Smaller than p1? Go to the left pile.
+# Bigger than p2? Go to the right pile.
+# In between? Stay in the middle pile.
+# We walk through the list once and everyone finds their group!
 
 def _dual_partition(a, lo, hi, p1, p2):
-    if p1 > p2: p1, p2 = p2, p1   # canonical ordering: p1 ≤ p2
+    if p1 > p2: p1, p2 = p2, p1   # make sure p1 is the smaller one
     lt, gt, i = lo, hi, lo
     while i <= gt:
         v = a[i]
         if v < p1:
             a[lt], a[i] = a[i], a[lt]; lt += 1; i += 1
         elif v > p2:
-            a[i], a[gt] = a[gt], a[i]; gt -= 1   # i not advanced: re-examine swap
+            a[i], a[gt] = a[gt], a[i]; gt -= 1   # look at the swapped item again next loop
         else:
             i += 1
     return lt, gt
 
 
-# ── Core recursive sort ───────────────────────────────────────────────────────
-# The outer while loop is the tail-call optimisation: rather than recursing into
-# all three partitions, we recurse into the two smaller ones and loop on the
-# largest. This bounds the call stack to O(log n) even when partitions are
-# maximally unequal, because the looped partition cannot exceed half the current
-# subarray at every other level.
+# The big sorting helper! This is where most of the magic happens.
+# It looks at the pile of numbers and picks the smartest trick for right now:
+#   - Tiny pile? Sort it by hand.
+#   - Numbers packed close together? Count them instead of comparing.
+#   - Already in order? Done! Go home!
+#   - Going backwards? Flip it around and done!
+#   - Otherwise: pick two good "splitter" numbers using the golden ratio,
+#     divide everything into three smaller piles, and do it all again
+#     on the smaller ones. The biggest pile gets the next loop turn
+#     instead of a new function call, so we don't run out of stack space.
 
 def _sort(a, lo, hi, depth):
     while lo < hi:
         size = hi - lo + 1
 
-        # Depth budget exhausted or subarray small enough for insertion sort.
-        # The budget 2⌊log₂n⌋ + 4 is tight enough to fire only on genuinely
-        # degenerate input and wide enough that it never fires on random data.
+        # Pile is tiny or we've gone as deep as we're allowed.
+        # Sort it by hand — fast and simple for small groups!
         if depth <= 0 or size <= 48:
             _insertion_sort(a, lo, hi)
             return
 
-        # Counting sort fast path — O(n) time, O(range) auxiliary space.
-        # Condition: value range < 4 × subarray size means the data is dense
-        # relative to its spread. Counting sort allocates one counter per
-        # distinct value and makes exactly two linear passes (tally, then write).
-        # No comparisons are performed; elements are placed by arithmetic alone.
+        # If the numbers are whole numbers and they're all close in value,
+        # we can count how many of each we have and write them back in order.
+        # Like counting red, blue, and green crayons, then laying them out:
+        # all the reds first, then blues, then greens — no comparing needed!
         if isinstance(a[lo], int):
             mn = mx = a[lo]
             for i in range(lo + 1, hi + 1):
@@ -151,11 +146,10 @@ def _sort(a, lo, hi, depth):
                         a[k] = v + mn; k += 1
                 return
 
-        # Monotone detection — recognises pre-existing order before disturbing it.
-        # An ascending prefix is checked only when the first three elements are
-        # non-decreasing, avoiding the full scan cost on random data.
-        # A descending run is the unique case where order is present but inverted;
-        # a single linear reversal restores it in O(n) with no comparisons after.
+        # Peek at the first three numbers.
+        # If they go smallest → middle → biggest, maybe the whole list is already sorted!
+        # Check the whole thing — if yes, we're done already, no work needed!
+        # If everything goes biggest → middle → smallest (backwards), just flip it!
         if a[lo] <= a[lo + 1] <= a[lo + 2]:
             asc = True
             for i in range(lo, hi):
@@ -169,37 +163,37 @@ def _sort(a, lo, hi, depth):
                 while l < r: a[l], a[r] = a[r], a[l]; l += 1; r -= 1
                 return
 
-        # Oracle-seeded golden-ratio pivot selection.
-        # A fresh random value from platform entropy prevents adversarial inputs
-        # from forcing repeated poor partitions across calls. The chaos integer
-        # is scaled by PHI2_NUM and PHI_NUM via fixed-point multiply (no float
-        # division), placing two pivot candidates at the 38.2% and 61.8% positions
-        # of the subarray — the proportions at which φ divides a segment into the
-        # ratio it bears to the whole. This is not numerology: it distributes the
-        # two pivots symmetrically and far from the extremes, minimising the
-        # probability of landing in the outer tails.
+        # Roll the dice! We pick a random number so nobody can trick us
+        # into always doing badly on purpose.
+        # Then we use the golden ratio (phi!) to find two good split points —
+        # one at about 38% of the way through, one at about 62%.
+        # Nature uses these same spots in seashells and flowers —
+        # turns out they work great for sorting too!
         c = 0.0
         while c == 0.0: c = random.uniform(-1.0, 1.0)
-        chaos_int = int(abs(c) * (1 << 53))   # 53-bit entropy integer
+        chaos_int = int(abs(c) * (1 << 53))
         pn1 = PHI2_NUM * chaos_int
         pn2 = PHI_NUM  * chaos_int
-        ps  = PHI_SHIFT + 53                   # total shift = 61 + 53 = 114 bits
+        ps  = PHI_SHIFT + 53
         sp  = hi - lo
-        idx1 = lo + (sp * pn1 >> ps)           # ≈ lo + 0.382 · chaos · span
-        idx2 = lo + (sp * pn2 >> ps)           # ≈ lo + 0.618 · chaos · span
+        idx1 = lo + (sp * pn1 >> ps)
+        idx2 = lo + (sp * pn2 >> ps)
 
+        # Ask each candidate and its neighbors: "who's the middle one?"
+        # The middle neighbor becomes our actual splitter value.
+        # This way we avoid accidentally picking a number that's way too big or tiny.
         p1 = _ninther(a, lo, hi, idx1)
         p2 = _ninther(a, lo, hi, idx2)
         lt, gt = _dual_partition(a, lo, hi, p1, p2)
 
-        left_n  = lt - lo       # elements < p1
-        mid_n   = gt - lt + 1   # elements in [p1, p2]
-        right_n = hi - gt       # elements > p2
+        left_n  = lt - lo       # how many went to the left pile
+        mid_n   = gt - lt + 1   # how many stayed in the middle pile
+        right_n = hi - gt       # how many went to the right pile
 
-        # Order the three partition regions by size so we recurse into the
-        # two smallest and loop on the largest. The comparison network below
-        # sorts three values with exactly three conditional swaps — no function
-        # call, no list allocation, O(1) unconditionally.
+        # Sort the three piles by size — smallest to biggest.
+        # We'll sort the two smaller piles by calling ourselves again.
+        # The biggest pile we just loop back for — no new function call!
+        # This keeps the stack from growing too tall.
         r0 = (left_n,  lo,    lt - 1)
         r1 = (mid_n,   lt,    gt    )
         r2 = (right_n, gt + 1, hi   )
@@ -207,12 +201,11 @@ def _sort(a, lo, hi, depth):
         if r1[0] > r2[0]: r1, r2 = r2, r1
         if r0[0] > r1[0]: r0, r1 = r1, r0
 
-        # Recurse into the two smaller partitions, consuming one depth unit each.
+        # Sort the two smaller piles.
         for _, r_lo, r_hi in (r0, r1):
             if r_lo < r_hi: _sort(a, r_lo, r_hi, depth - 1)
 
-        # The largest partition continues in the outer while loop (TCO).
-        # No new stack frame is created; only lo, hi, and depth are updated.
+        # The biggest pile? Loop back and do it again — no new stack frame!
         lo, hi = r2[1], r2[2]
         depth -= 1
 
@@ -220,26 +213,24 @@ def _sort(a, lo, hi, depth):
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def logos_sort(arr: list) -> list:
-    """Return a new sorted list. The original is never modified.
-
-    A working copy is allocated (O(n) space) so the caller's reference remains
-    stable. The sort itself operates in place on that copy; auxiliary space beyond
-    the copy is O(log n) — the recursion stack only.
-    """
+    # "In the beginning was the Logos, and the Logos was with God, and the Logos was God." — John 1:1
+    #
+    # Makes a copy of your list and sorts the copy.
+    # Your original list stays exactly the same — untouched!
+    # Like making a photocopy of your drawing before coloring it in.
     n = len(arr)
     if n < 2: return arr[:]
-    a = arr[:]   # working copy — the only O(n) allocation in this path
+    a = arr[:]   # the copy — only big extra memory we use
     _sort(a, 0, n - 1, 2 * int(math.log2(n)) + 4)
     return a
 
 
 def logos_sort_inplace(arr: list) -> None:
-    """Sort arr in place. No copy is made.
-
-    Auxiliary space is O(log n): only the call stack up to the depth budget.
-    The budget 2⌊log₂n⌋ + 4 bounds the maximum stack depth while leaving
-    ample room for well-behaved recursion trees on all realistic inputs.
-    """
+    # "In the beginning was the Logos, and the Logos was with God, and the Logos was God." — John 1:1
+    #
+    # Sorts your list right where it sits — no copy made!
+    # Like cleaning your room instead of moving to a new one.
+    # Only uses a tiny bit of extra memory to remember where we are.
     n = len(arr)
     if n >= 2:
         _sort(arr, 0, n - 1, 2 * int(math.log2(n)) + 4)
