@@ -174,11 +174,16 @@ PHI2_NUM  <- as.integer(round(0.3819660112501051 * 2^PHI_SHIFT))
 
 #' Sort a vector using LogosSort.
 #'
-#' @param x  An atomic vector (numeric or integer).
-#' @return   A sorted copy of x.
-logos_sort <- function(x) {
+#' @param x           An atomic vector (numeric or integer).
+#' @param decreasing  Logical. If TRUE, return in descending order. Default FALSE.
+#' @return            A sorted copy of x.
+logos_sort <- function(x, decreasing = FALSE) {
   n <- length(x)
-  if (n < 2L) return(x)
-  depth <- 2L * as.integer(floor(log2(n))) + 4L
-  .logos_sort_impl(x, 1L, n, depth)
+  if (n < 2L) {
+    if (decreasing) return(rev(x))
+    return(x)
+  }
+  depth  <- 2L * as.integer(floor(log2(n))) + 4L
+  result <- .logos_sort_impl(x, 1L, n, depth)
+  if (decreasing) rev(result) else result
 }

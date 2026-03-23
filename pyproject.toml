@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "logos-sort"
+version = "0.1.0"
+description = "Golden-ratio dual-pivot introsort — pure Python, zero C calls"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+readme = "README.md"
+
+[project.urls]
+Repository = "https://github.com/markc/LogosSort"
+
+[tool.setuptools]
+py-modules = ["logos_sort", "logos_sort_embed"]

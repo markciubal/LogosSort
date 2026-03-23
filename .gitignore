@@ -41,6 +41,9 @@ node_modules/
 .gradle/
 build/
 
+# Quantum credentials — never commit the real key
+.env
+
 # Editors
 .vscode/
 .idea/

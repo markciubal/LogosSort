@@ -1,0 +1,15 @@
+# LogosSort — Quantum Edition
+# Install with: pip install -r requirements.txt
+#
+# Core Qiskit stack (Qiskit 1.x)
+qiskit>=1.3,<2.0
+qiskit-aer>=0.15        # local noiseless simulator (fallback when no API key)
+qiskit-ibm-runtime>=0.34  # IBM Quantum cloud execution and primitives
+
+# Environment variable loading
+python-dotenv>=1.0
+
+# Optional: arbitrary-precision math (used by phi_qpe if mpmath is preferred)
+# The implementation uses Python's built-in Decimal by default, so this is
+# only needed if you want mpmath's richer API for further experimentation.
+# mpmath>=1.3
